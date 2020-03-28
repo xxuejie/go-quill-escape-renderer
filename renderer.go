@@ -97,9 +97,9 @@ func (p Palette) HighIntensityColor(i int) string {
 
 func StyleEraser() map[string]interface{} {
 	return map[string]interface{}{
-		"bold": nil,
-		"color": nil,
-		"italic": nil,
+		"bold":      nil,
+		"color":     nil,
+		"italic":    nil,
 		"underline": nil,
 	}
 }
@@ -159,6 +159,32 @@ func (r *Renderer) Write(p []byte) (int, error) {
 					}
 					r.handleCSI(data)
 					r.left = r.left[size+size2+peekBytes:]
+				case 'U': // Custom extension by us, allows inserting data URI images
+					data, peekBytes, err := r.peekTill(size+size2, ';', ';'+1)
+					if err != nil {
+						return 0, err
+					}
+					if peekBytes == 0 {
+						return len(p), nil
+					}
+					length, err := strconv.Atoi(string(data[:len(data)-1]))
+					if err != nil {
+						return 0, err
+					}
+					imageStart := size + size2 + peekBytes
+					if len(r.left) < imageStart+length {
+						// Not enough bytes
+						return len(p), nil
+					}
+					imageData := r.left[imageStart : imageStart+length]
+					if !utf8.Valid(imageData) {
+						return 0, fmt.Errorf("Image data is not in UTF-8 format!")
+					}
+					r.c <- *delta.New(nil).InsertEmbed(delta.Embed{
+						Key:   "image",
+						Value: string(imageData),
+					}, r.currentStyle)
+					r.left = r.left[imageStart+length:]
 				default:
 					r.left = r.left[size+size2:]
 				}

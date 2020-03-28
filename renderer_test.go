@@ -2,6 +2,7 @@ package renderer
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -229,6 +230,42 @@ func TestSetRichColor(t *testing.T) {
 		Insert("e", map[string]interface{}{
 			"color": "#990a63",
 		})
+	if !reflect.DeepEqual(change, expectedChange) {
+		t.Fatalf("Invalid change, expected: %s, actual: %s",
+			debugDeltaString(t, expectedChange), debugDeltaString(t, change))
+	}
+}
+
+func TestEmbedImage(t *testing.T) {
+	c := make(chan delta.Delta)
+	r := NewRenderer(c)
+
+	sc := make(chan bool)
+	ec := make(chan error)
+
+	img := "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUAAAAFCAYAAACNbyblAAAAHElEQVQI12P4//8/w38GIAXDIBKE0DHxgljNBAAO9TXL0Y4OHwAAAABJRU5ErkJggg=="
+	data := fmt.Sprintf("hello\x1bU%d;%s", len(img), img)
+
+	go func() {
+		_, err := r.Write([]byte(data))
+		if err != nil {
+			ec <- err
+		} else {
+			sc <- true
+		}
+	}()
+
+	change := <-c
+	change = *change.Concat(<-c)
+	select {
+	case <-sc:
+	case err := <-ec:
+		t.Fatal(err)
+	}
+	expectedChange := *delta.New(nil).Insert("hello", nil).InsertEmbed(delta.Embed{
+		Key:   "image",
+		Value: img,
+	}, nil)
 	if !reflect.DeepEqual(change, expectedChange) {
 		t.Fatalf("Invalid change, expected: %s, actual: %s",
 			debugDeltaString(t, expectedChange), debugDeltaString(t, change))
